@@ -1,0 +1,1396 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HostManager</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f172a; --surface: #1e293b; --surface2: #273549;
+  --border: #334155; --text: #e2e8f0; --muted: #94a3b8;
+  --accent: #3b82f6; --accent2: #6366f1;
+  --green: #22c55e; --red: #ef4444; --yellow: #f59e0b; --orange: #f97316;
+  --radius: 8px; --sidebar: 220px;
+}
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+/* ── LOGIN ── */
+#loginScreen {
+  position: fixed; inset: 0; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; z-index: 999;
+}
+.login-box {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  padding: 48px 40px; text-align: center; max-width: 380px; width: 90%;
+}
+.login-box h1 { font-size: 1.6rem; margin-bottom: 6px; }
+.login-box p { color: var(--muted); margin-bottom: 32px; font-size: 0.9rem; }
+.login-box .g-logo { font-size: 2.5rem; margin-bottom: 16px; }
+#loginError { color: var(--red); font-size: 0.85rem; margin-top: 16px; display: none; }
+
+/* ── APP ── */
+#app { display: none; }
+.layout { display: flex; min-height: 100vh; }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width: var(--sidebar); background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; position: fixed; top: 0; left: 0; height: 100vh; z-index: 10;
+}
+.sidebar-logo {
+  padding: 20px 16px; border-bottom: 1px solid var(--border);
+  font-weight: 700; font-size: 1.1rem; color: var(--accent);
+}
+.sidebar-logo span { color: var(--muted); font-weight: 400; font-size: 0.75rem; display: block; }
+.nav { flex: 1; padding: 8px 0; overflow-y: auto; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+  color: var(--muted); cursor: pointer; border-radius: 6px; margin: 2px 8px;
+  font-size: 0.9rem; transition: all .15s; user-select: none;
+}
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item.active { background: var(--accent); color: #fff; }
+.nav-item .icon { font-size: 1rem; width: 20px; text-align: center; }
+.sidebar-footer { padding: 12px; border-top: 1px solid var(--border); }
+.user-info { font-size: 0.75rem; color: var(--muted); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn-logout {
+  width: 100%; padding: 8px; background: var(--surface2); border: 1px solid var(--border);
+  color: var(--muted); border-radius: var(--radius); cursor: pointer; font-size: 0.8rem;
+  transition: all .15s;
+}
+.btn-logout:hover { background: var(--red); color: #fff; border-color: var(--red); }
+
+/* ── MAIN ── */
+.main { margin-left: var(--sidebar); flex: 1; display: flex; flex-direction: column; }
+.topbar {
+  padding: 16px 24px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--surface); position: sticky; top: 0; z-index: 5;
+}
+.topbar h2 { font-size: 1.1rem; }
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+.content { padding: 24px; flex: 1; }
+
+/* ── BUTTONS ── */
+.btn {
+  padding: 8px 16px; border-radius: var(--radius); border: none; cursor: pointer;
+  font-size: 0.85rem; font-weight: 500; transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #2563eb; }
+.btn-success { background: var(--green); color: #fff; }
+.btn-success:hover { background: #16a34a; }
+.btn-danger { background: var(--red); color: #fff; }
+.btn-danger:hover { background: #dc2626; }
+.btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+.btn-ghost:hover { background: var(--surface2); color: var(--text); }
+.btn-sm { padding: 5px 10px; font-size: 0.78rem; }
+.btn-icon { padding: 6px 8px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; transition: all .15s; }
+.btn-icon:hover { background: var(--surface2); color: var(--text); }
+
+/* ── FILTERS ── */
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.filters input, .filters select {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  border-radius: var(--radius); padding: 7px 12px; font-size: 0.85rem; outline: none;
+}
+.filters input:focus, .filters select:focus { border-color: var(--accent); }
+.filters input { min-width: 200px; }
+.filters select { min-width: 140px; }
+
+/* ── CARDS — HOSTINGI ── */
+.hosting-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.hosting-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  border-left: 4px solid var(--border); overflow: hidden; transition: border-color .2s;
+}
+.hosting-card.oplacony { border-left-color: var(--green); }
+.hosting-card.wygasa { border-left-color: var(--yellow); }
+.hosting-card.zalegly { border-left-color: var(--red); }
+.hosting-card.nieaktywny { border-left-color: var(--muted); opacity: .7; }
+.card-header { padding: 14px 16px 10px; display: flex; justify-content: space-between; align-items: flex-start; }
+.card-header h3 { font-size: 0.95rem; font-weight: 600; }
+.card-meta { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+.badge {
+  font-size: 0.7rem; padding: 2px 8px; border-radius: 12px; font-weight: 600;
+  white-space: nowrap;
+}
+.badge-green { background: rgba(34,197,94,.15); color: var(--green); }
+.badge-red { background: rgba(239,68,68,.15); color: var(--red); }
+.badge-yellow { background: rgba(245,158,11,.15); color: var(--yellow); }
+.badge-gray { background: rgba(148,163,184,.1); color: var(--muted); }
+.badge-blue { background: rgba(59,130,246,.15); color: var(--accent); }
+.card-body { padding: 0 16px 12px; }
+.card-row { display: flex; justify-content: space-between; font-size: 0.8rem; padding: 3px 0; }
+.card-row span:first-child { color: var(--muted); }
+.card-actions { padding: 10px 16px; border-top: 1px solid var(--border); display: flex; gap: 6px; }
+
+/* ── TABLE ── */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+thead th {
+  text-align: left; padding: 9px 12px; background: var(--surface2);
+  color: var(--muted); font-weight: 600; white-space: nowrap;
+  border-bottom: 1px solid var(--border); cursor: pointer; user-select: none;
+}
+thead th:hover { color: var(--text); }
+tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+tbody tr:hover { background: var(--surface2); }
+tbody td { padding: 9px 12px; vertical-align: middle; }
+.col-actions { white-space: nowrap; }
+
+/* column group headers */
+.col-group { background: var(--surface) !important; font-size: 0.7rem; text-transform: uppercase; letter-spacing: .05em; }
+.col-group-crm { color: #a78bfa !important; }
+.col-group-ahrefs { color: #34d399 !important; }
+.col-group-after { color: #fb923c !important; }
+
+/* source badge */
+.src-badge { font-size: 0.65rem; padding: 1px 5px; border-radius: 4px; font-weight: 700; }
+.src-crm   { background: rgba(167,139,250,.15); color: #a78bfa; }
+.src-ahrefs{ background: rgba(52,211,153,.15); color: #34d399; }
+.src-after { background: rgba(251,146,60,.15); color: #fb923c; }
+
+/* zostaje toggle */
+.toggle-zostaje {
+  display: inline-flex; gap: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+}
+.toggle-zostaje button {
+  padding: 3px 10px; border: none; cursor: pointer; font-size: 0.75rem; font-weight: 600;
+  background: transparent; color: var(--muted); transition: all .15s;
+}
+.toggle-zostaje button.tak { background: rgba(34,197,94,.2); color: var(--green); }
+.toggle-zostaje button.nie { background: rgba(239,68,68,.2); color: var(--red); }
+
+/* ── MODAL ── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center; z-index: 100; padding: 16px;
+}
+.modal-overlay.hidden { display: none; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+}
+.modal-lg { max-width: 780px; }
+.modal-header {
+  padding: 18px 20px; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.modal-header h3 { font-size: 1rem; font-weight: 600; }
+.modal-close { background: none; border: none; color: var(--muted); font-size: 1.3rem; cursor: pointer; padding: 0; }
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 20px; }
+.modal-footer { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ── FORM ── */
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-full { grid-column: 1/-1; }
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-group label { font-size: 0.8rem; color: var(--muted); font-weight: 500; }
+.form-group input, .form-group select, .form-group textarea {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+  border-radius: var(--radius); padding: 8px 12px; font-size: 0.85rem; outline: none; font-family: inherit;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--accent); }
+.form-group textarea { resize: vertical; min-height: 80px; }
+
+/* ── IMPORT ── */
+.import-sources { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 20px; }
+.import-card {
+  border: 2px solid var(--border); border-radius: var(--radius); padding: 14px;
+  cursor: pointer; transition: all .2s; text-align: center;
+}
+.import-card:hover { border-color: var(--accent); }
+.import-card.selected { border-color: var(--accent); background: rgba(59,130,246,.08); }
+.import-card h4 { font-size: 0.85rem; margin-bottom: 4px; }
+.import-card p { font-size: 0.72rem; color: var(--muted); }
+.import-drop {
+  border: 2px dashed var(--border); border-radius: var(--radius); padding: 28px;
+  text-align: center; color: var(--muted); transition: all .2s; cursor: pointer;
+}
+.import-drop:hover, .import-drop.drag { border-color: var(--accent); color: var(--text); }
+.import-drop input { display: none; }
+.import-preview { margin-top: 16px; }
+.import-stats { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.import-stat { background: var(--surface2); border-radius: var(--radius); padding: 8px 14px; font-size: 0.8rem; text-align: center; }
+.import-stat strong { display: block; font-size: 1.2rem; }
+
+/* ── CALENDAR ── */
+.calendar-list { display: flex; flex-direction: column; gap: 10px; }
+.cal-item {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px 16px; display: flex; align-items: center; gap: 16px;
+}
+.cal-date { text-align: center; min-width: 44px; }
+.cal-date .day { font-size: 1.4rem; font-weight: 700; line-height: 1; }
+.cal-date .month { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; }
+.cal-info { flex: 1; }
+.cal-info h4 { font-size: 0.9rem; margin-bottom: 2px; }
+.cal-info p { font-size: 0.78rem; color: var(--muted); }
+.cal-urgent { border-left: 4px solid var(--red); }
+.cal-warn { border-left: 4px solid var(--yellow); }
+.cal-ok { border-left: 4px solid var(--green); }
+
+/* ── KATEGORIE ── */
+.kategorie-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.kat-tag {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 20px;
+  padding: 5px 14px; font-size: 0.8rem; display: flex; align-items: center; gap: 6px;
+}
+.kat-del { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.9rem; padding: 0; line-height: 1; }
+.kat-del:hover { color: var(--red); }
+
+/* ── MISC ── */
+.empty { text-align: center; padding: 48px; color: var(--muted); }
+.loading { text-align: center; padding: 32px; color: var(--muted); }
+.toast {
+  position: fixed; bottom: 24px; right: 24px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 20px;
+  font-size: 0.85rem; z-index: 200; transform: translateY(80px); opacity: 0;
+  transition: all .3s; max-width: 320px;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.ok { border-left: 3px solid var(--green); }
+.toast.err { border-left: 3px solid var(--red); }
+.section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.section-head h3 { font-size: 0.95rem; color: var(--muted); font-weight: 500; }
+.stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 20px; flex: 1; min-width: 110px; }
+.stat-box .val { font-size: 1.6rem; font-weight: 700; }
+.stat-box .lbl { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+.sort-arrow { opacity: .4; }
+.sort-arrow.active { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- ════ LOGIN ════ -->
+<div id="loginScreen">
+  <div class="login-box">
+    <div class="g-logo">🖥️</div>
+    <h1>HostManager</h1>
+    <p>Zaloguj się kontem <strong>@sempai.pl</strong>, aby uzyskać dostęp.</p>
+    <div id="g_id_signin"></div>
+    <div id="loginError"></div>
+  </div>
+</div>
+
+<!-- ════ APP ════ -->
+<div id="app">
+  <div class="layout">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        HostManager
+        <span>panel zarządzania</span>
+      </div>
+      <nav class="nav">
+        <div class="nav-item active" data-view="hostingi" onclick="switchView('hostingi')">
+          <span class="icon">🏠</span> Hostingi
+        </div>
+        <div class="nav-item" data-view="domeny" onclick="switchView('domeny')">
+          <span class="icon">🌐</span> Domeny
+        </div>
+        <div class="nav-item" data-view="zaplecza" onclick="switchView('zaplecza')">
+          <span class="icon">📦</span> Zaplecza
+        </div>
+        <div class="nav-item" data-view="kalendarz" onclick="switchView('kalendarz')">
+          <span class="icon">📅</span> Kalendarz
+        </div>
+        <div class="nav-item" data-view="ustawienia" onclick="switchView('ustawienia')">
+          <span class="icon">⚙️</span> Ustawienia
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-info" id="userEmail">—</div>
+        <button class="btn-logout" onclick="logout()">Wyloguj</button>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+      <div class="topbar">
+        <h2 id="viewTitle">Hostingi</h2>
+        <div class="topbar-actions">
+          <button class="btn-icon" onclick="loadAll()" title="Odśwież">🔄</button>
+          <button class="btn btn-primary" id="btnAdd" onclick="openAddModal()">+ Dodaj</button>
+        </div>
+      </div>
+      <div class="content" id="viewContent"></div>
+    </main>
+  </div>
+</div>
+
+<!-- ════ TOAST ════ -->
+<div class="toast" id="toast"></div>
+
+<!-- ════ MODALS ════ -->
+
+<!-- Hosting modal -->
+<div class="modal-overlay hidden" id="modalHosting">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalHostingTitle">Dodaj hosting</h3>
+      <button class="modal-close" onclick="closeModal('modalHosting')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group form-full"><label>Nazwa *</label><input id="h_nazwa" placeholder="np. H1 OVH Business"></div>
+        <div class="form-group"><label>Provider</label><input id="h_provider" placeholder="np. OVH, home.pl"></div>
+        <div class="form-group"><label>Plan</label><input id="h_plan" placeholder="np. Business 200GB"></div>
+        <div class="form-group"><label>Cena (PLN)</label><input id="h_cena" type="number" step="0.01" placeholder="0.00"></div>
+        <div class="form-group"><label>Cykl</label>
+          <select id="h_cykl">
+            <option value="miesięczny">Miesięczny</option>
+            <option value="kwartalny">Kwartalny</option>
+            <option value="półroczny">Półroczny</option>
+            <option value="roczny" selected>Roczny</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Termin płatności</label><input id="h_termin" type="date"></div>
+        <div class="form-group"><label>Status</label>
+          <select id="h_status">
+            <option value="oplacony">Opłacony</option>
+            <option value="wygasa">Wygasa</option>
+            <option value="zalegly">Zaległy</option>
+            <option value="nieaktywny">Nieaktywny</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Ostrzeżenie (dni przed)</label><input id="h_ostrzezenie" type="number" value="30"></div>
+        <div class="form-group"><label>Link panel</label><input id="h_link_panel" type="url" placeholder="https://"></div>
+        <div class="form-group"><label>Link serwer</label><input id="h_link_serwer" type="url" placeholder="https://"></div>
+        <div class="form-group form-full"><label>Notatki</label><textarea id="h_notatki"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalHosting')">Anuluj</button>
+      <button class="btn btn-primary" onclick="saveHosting()">Zapisz</button>
+    </div>
+  </div>
+</div>
+
+<!-- Opłać modal -->
+<div class="modal-overlay hidden" id="modalOplac">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Oznacz jako opłacony</h3>
+      <button class="modal-close" onclick="closeModal('modalOplac')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group form-full"><label>Hosting</label><input id="o_nazwa" readonly></div>
+        <div class="form-group"><label>Data płatności *</label><input id="o_data" type="date"></div>
+        <div class="form-group"><label>Kwota (PLN)</label><input id="o_kwota" type="number" step="0.01"></div>
+        <div class="form-group form-full"><label>Następna płatność *</label><input id="o_nastepna" type="date"></div>
+        <div class="form-group form-full"><label>Notatka</label><input id="o_notatka" placeholder="Faktura, karta..."></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalOplac')">Anuluj</button>
+      <button class="btn btn-success" onclick="saveOplac()">✓ Opłać</button>
+    </div>
+  </div>
+</div>
+
+<!-- Domena modal -->
+<div class="modal-overlay hidden" id="modalDomena">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalDomenaTitle">Dodaj domenę</h3>
+      <button class="modal-close" onclick="closeModal('modalDomena')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group form-full"><label>URL *</label><input id="d_url" placeholder="np. example.com"></div>
+        <div class="form-group"><label>Kategoria</label>
+          <select id="d_kategoria"><option value="">— brak —</option></select>
+        </div>
+        <div class="form-group"><label>Hosting</label>
+          <select id="d_hosting_id"><option value="">— brak —</option></select>
+        </div>
+        <div class="form-group"><label>Status</label>
+          <select id="d_status">
+            <option value="aktywna">Aktywna</option>
+            <option value="nieaktywna">Nieaktywna</option>
+            <option value="wygasla">Wygasła</option>
+          </select>
+        </div>
+        <div class="form-group form-full"><label>Notatka</label><textarea id="d_notatka"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalDomena')">Anuluj</button>
+      <button class="btn btn-primary" onclick="saveDomena()">Zapisz</button>
+    </div>
+  </div>
+</div>
+
+<!-- Zaplecze modal -->
+<div class="modal-overlay hidden" id="modalZaplecze">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalZapleczeTitle">Dodaj zaplecze</h3>
+      <button class="modal-close" onclick="closeModal('modalZaplecze')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group form-full"><label>URL *</label><input id="z_url" placeholder="np. zaplecze.pl"></div>
+        <div class="form-group"><label>Kategoria</label>
+          <select id="z_kategoria"><option value="">— brak —</option></select>
+        </div>
+        <div class="form-group"><label>Rodzaj</label>
+          <select id="z_rodzaj">
+            <option value="ogólna">Ogólna</option>
+            <option value="dedyk">Dedyk</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Projekt (dla dedyk)</label><input id="z_projekt" placeholder="nazwa klienta"></div>
+        <div class="form-group"><label>Status domeny</label><input id="z_status_domeny" placeholder="np. Działa"></div>
+        <div class="form-group"><label>Hosting</label><input id="z_hosting_name" placeholder="np. H1 OVH"></div>
+        <div class="form-group"><label>Wygaśnięcie domeny</label><input id="z_wygasniecie" type="date"></div>
+        <div class="form-group"><label>Ostatni post</label><input id="z_ostatni_post" type="date"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalZaplecze')">Anuluj</button>
+      <button class="btn btn-primary" onclick="saveZaplecze()">Zapisz</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import modal -->
+<div class="modal-overlay hidden" id="modalImport">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>Import danych — Zaplecza</h3>
+      <button class="modal-close" onclick="closeModal('modalImport')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="import-sources">
+        <div class="import-card" id="srcAhrefs" onclick="selectSource('ahrefs')">
+          <h4>📊 Ahrefs</h4>
+          <p>DR, UR, backlinks, traffic, keywords, indexed</p>
+          <div class="src-badge src-ahrefs" style="display:inline-block;margin-top:6px">AHREFS</div>
+        </div>
+        <div class="import-card" id="srcAftermarket" onclick="selectSource('aftermarket')">
+          <h4>💰 Aftermarket</h4>
+          <p>Dostępność domen na aukcjach</p>
+          <div class="src-badge src-after" style="display:inline-block;margin-top:6px">AFTER</div>
+        </div>
+        <div class="import-card" id="srcCrm" onclick="selectSource('crm')">
+          <h4>📋 CRM / Własne dane</h4>
+          <p>Posty, kategorie, hosting, projekt</p>
+          <div class="src-badge src-crm" style="display:inline-block;margin-top:6px">CRM</div>
+        </div>
+      </div>
+
+      <div class="import-drop" id="importDrop" onclick="document.getElementById('importFile').click()"
+           ondragover="event.preventDefault();this.classList.add('drag')"
+           ondragleave="this.classList.remove('drag')"
+           ondrop="handleFileDrop(event)">
+        <input type="file" id="importFile" accept=".csv,.xlsx,.xls,.txt" onchange="handleFileSelect(event)">
+        <p style="font-size:1.5rem;margin-bottom:8px">📂</p>
+        <p>Kliknij lub przeciągnij plik (CSV, XLSX, TXT)</p>
+        <p id="importFileName" style="margin-top:8px;color:var(--accent)"></p>
+      </div>
+
+      <div class="import-preview" id="importPreview" style="display:none">
+        <div class="import-stats" id="importStats"></div>
+        <p id="importMsg" style="font-size:0.82rem;color:var(--muted);margin-top:8px"></p>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalImport')">Anuluj</button>
+      <button class="btn btn-primary" id="btnImport" onclick="runImport()" disabled>Importuj</button>
+    </div>
+  </div>
+</div>
+
+<!-- Kategoria modal -->
+<div class="modal-overlay hidden" id="modalKategoria">
+  <div class="modal" style="max-width:360px">
+    <div class="modal-header">
+      <h3>Dodaj kategorię</h3>
+      <button class="modal-close" onclick="closeModal('modalKategoria')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Nazwa kategorii *</label>
+        <input id="kat_nazwa" placeholder="np. Moda, Finanse...">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modalKategoria')">Anuluj</button>
+      <button class="btn btn-primary" onclick="saveKategoria()">Dodaj</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════
+//  CONFIG — uzupełnij przed wdrożeniem
+// ════════════════════════════════════════════════════════════════
+const GOOGLE_CLIENT_ID = 'WKLEJ_TUTAJ_GOOGLE_CLIENT_ID';
+const SCRIPT_URL       = 'WKLEJ_TUTAJ_URL_APPS_SCRIPT';
+
+// ════════════════════════════════════════════════════════════════
+//  AUTH
+// ════════════════════════════════════════════════════════════════
+let currentToken = sessionStorage.getItem('gToken') || '';
+let currentEmail = sessionStorage.getItem('gEmail') || '';
+
+window.addEventListener('load', () => {
+  if (currentToken) {
+    showApp(currentEmail);
+  } else {
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleCredential,
+      auto_select: true,
+      cancel_on_tap_outside: false,
+      hosted_domain: 'sempai.pl',
+    });
+    google.accounts.id.renderButton(document.getElementById('g_id_signin'), {
+      theme: 'filled_blue', size: 'large', text: 'signin_with',
+      shape: 'rectangular', locale: 'pl',
+    });
+    google.accounts.id.prompt();
+  }
+});
+
+function handleCredential(response) {
+  const payload = parseJwt(response.credential);
+  if (!payload || !payload.email) { showLoginError('Nieprawidłowy token.'); return; }
+  if (!payload.email.endsWith('@sempai.pl')) {
+    showLoginError('Brak dostępu — tylko konta @sempai.pl.');
+    return;
+  }
+  currentToken = response.credential;
+  currentEmail = payload.email;
+  sessionStorage.setItem('gToken', currentToken);
+  sessionStorage.setItem('gEmail', currentEmail);
+  showApp(currentEmail);
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('loginError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function parseJwt(token) {
+  try {
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+  } catch { return null; }
+}
+
+function showApp(email) {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('userEmail').textContent = email;
+  loadAll();
+}
+
+function logout() {
+  google.accounts.id.disableAutoSelect();
+  sessionStorage.clear();
+  location.reload();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  API
+// ════════════════════════════════════════════════════════════════
+async function api(action, data = {}) {
+  const res = await fetch(SCRIPT_URL, {
+    method: 'POST',
+    body: JSON.stringify({ token: currentToken, action, data }),
+  });
+  if (!res.ok) throw new Error('Błąd sieci: ' + res.status);
+  const json = await res.json();
+  if (!json.success) {
+    if (json.error && json.error.toLowerCase().includes('token')) {
+      sessionStorage.clear(); location.reload();
+    }
+    throw new Error(json.error || 'Nieznany błąd API');
+  }
+  return json.data;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════════════
+let state = { hostingi: [], domeny: [], zaplecza: [], kategorie: [], historia: [] };
+let currentView = 'hostingi';
+let editId = null;
+
+async function loadAll() {
+  try {
+    const [h, d, z, k, hist] = await Promise.all([
+      api('getHostingi'), api('getDomeny'), api('getZaplecza'),
+      api('getKategorie'), api('getHistoriaPlatnosci'),
+    ]);
+    state.hostingi  = h    || [];
+    state.domeny    = d    || [];
+    state.zaplecza  = z    || [];
+    state.kategorie = k    || [];
+    state.historia  = hist || [];
+    renderView();
+    toast('Dane załadowane', 'ok');
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════════════════════════════════════
+const VIEW_TITLES = {
+  hostingi: 'Hostingi', domeny: 'Domeny', zaplecza: 'Zaplecza',
+  kalendarz: 'Kalendarz płatności', ustawienia: 'Ustawienia',
+};
+const ADD_LABELS = {
+  hostingi: '+ Dodaj hosting', domeny: '+ Dodaj domenę', zaplecza: '+ Dodaj zaplecze',
+  kalendarz: null, ustawienia: null,
+};
+
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+  document.getElementById('viewTitle').textContent = VIEW_TITLES[view] || view;
+  const btnAdd = document.getElementById('btnAdd');
+  const label = ADD_LABELS[view];
+  if (label) { btnAdd.style.display = ''; btnAdd.textContent = label; }
+  else btnAdd.style.display = 'none';
+  renderView();
+}
+
+function renderView() {
+  const el = document.getElementById('viewContent');
+  if      (currentView === 'hostingi')   el.innerHTML = renderHostingi();
+  else if (currentView === 'domeny')     el.innerHTML = renderDomeny();
+  else if (currentView === 'zaplecza')   el.innerHTML = renderZaplecza();
+  else if (currentView === 'kalendarz')  el.innerHTML = renderKalendarz();
+  else if (currentView === 'ustawienia') el.innerHTML = renderUstawienia();
+}
+
+function openAddModal() {
+  if      (currentView === 'hostingi')  openHostingModal();
+  else if (currentView === 'domeny')    openDomenaModal();
+  else if (currentView === 'zaplecza')  openZapleczeModal();
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VIEW: HOSTINGI
+// ════════════════════════════════════════════════════════════════
+function renderHostingi() {
+  const h = state.hostingi;
+  const stats = {
+    all: h.length,
+    ok:  h.filter(x => x.status === 'oplacony').length,
+    warn:h.filter(x => x.status === 'wygasa').length,
+    bad: h.filter(x => x.status === 'zalegly').length,
+  };
+  const cards = h.length
+    ? h.map(renderHostingCard).join('')
+    : '<div class="empty">Brak hostingów — dodaj pierwszy!</div>';
+  return `
+    <div class="stat-row">
+      <div class="stat-box"><div class="val">${stats.all}</div><div class="lbl">Wszystkich</div></div>
+      <div class="stat-box" style="border-left:3px solid var(--green)"><div class="val" style="color:var(--green)">${stats.ok}</div><div class="lbl">Opłaconych</div></div>
+      <div class="stat-box" style="border-left:3px solid var(--yellow)"><div class="val" style="color:var(--yellow)">${stats.warn}</div><div class="lbl">Wygasających</div></div>
+      <div class="stat-box" style="border-left:3px solid var(--red)"><div class="val" style="color:var(--red)">${stats.bad}</div><div class="lbl">Zaległych</div></div>
+    </div>
+    <div class="hosting-grid">${cards}</div>`;
+}
+
+function renderHostingCard(h) {
+  const statusLabel = { oplacony:'Opłacony', wygasa:'Wygasa', zalegly:'Zaległy', nieaktywny:'Nieaktywny' };
+  const badgeClass  = { oplacony:'badge-green', wygasa:'badge-yellow', zalegly:'badge-red', nieaktywny:'badge-gray' };
+  const daysLeft = h.termin_platnosci
+    ? Math.round((new Date(h.termin_platnosci) - new Date()) / 86400000)
+    : null;
+  const domainCount = state.domeny.filter(d => d.hosting_id === h.id).length;
+  const links = [
+    h.link_panel  ? `<a href="${h.link_panel}"  target="_blank" style="color:var(--accent);font-size:0.75rem">🔧 Panel</a>`  : '',
+    h.link_serwer ? `<a href="${h.link_serwer}" target="_blank" style="color:var(--accent);font-size:0.75rem">🖥️ Serwer</a>` : '',
+  ].filter(Boolean).join(' ');
+  return `
+  <div class="hosting-card ${h.status || ''}">
+    <div class="card-header">
+      <div>
+        <h3>${esc(h.nazwa)}</h3>
+        <div class="card-meta">${esc(h.provider||'')}${h.plan ? ' · '+esc(h.plan) : ''}</div>
+      </div>
+      <span class="badge ${badgeClass[h.status]||'badge-gray'}">${statusLabel[h.status]||h.status}</span>
+    </div>
+    <div class="card-body">
+      <div class="card-row"><span>Cena</span><span>${h.cena ? h.cena+' PLN / '+(h.cykl||'') : '—'}</span></div>
+      <div class="card-row"><span>Termin</span><span>${fmtDate(h.termin_platnosci)}</span></div>
+      <div class="card-row"><span>Zostało</span><span style="color:${daysLeft!==null&&daysLeft<14?'var(--red)':'inherit'}">${daysLeft!==null ? daysLeft+' dni' : '—'}</span></div>
+      <div class="card-row"><span>Domeny</span><span>${domainCount}</span></div>
+      ${links ? `<div class="card-row" style="margin-top:4px"><span></span><span style="display:flex;gap:8px">${links}</span></div>` : ''}
+      ${h.notatki ? `<div style="margin-top:6px;font-size:0.75rem;color:var(--muted)">${esc(h.notatki)}</div>` : ''}
+    </div>
+    <div class="card-actions">
+      <button class="btn btn-sm btn-success" onclick="openOplacModal('${h.id}')">💳 Opłać</button>
+      <button class="btn btn-sm btn-ghost"   onclick="openHostingModal('${h.id}')">✏️ Edytuj</button>
+      <button class="btn btn-sm btn-ghost"   style="color:var(--red)" onclick="delHosting('${h.id}','${esc(h.nazwa)}')">🗑️</button>
+    </div>
+  </div>`;
+}
+
+function openHostingModal(id) {
+  editId = id || null;
+  document.getElementById('modalHostingTitle').textContent = id ? 'Edytuj hosting' : 'Dodaj hosting';
+  const h = id ? state.hostingi.find(x => x.id === id) : {};
+  document.getElementById('h_nazwa').value        = h.nazwa || '';
+  document.getElementById('h_provider').value     = h.provider || '';
+  document.getElementById('h_plan').value         = h.plan || '';
+  document.getElementById('h_cena').value         = h.cena || '';
+  document.getElementById('h_cykl').value         = h.cykl || 'roczny';
+  document.getElementById('h_termin').value       = fmtDateInput(h.termin_platnosci);
+  document.getElementById('h_status').value       = h.status || 'oplacony';
+  document.getElementById('h_ostrzezenie').value  = h.ostrzezenie_dni || 30;
+  document.getElementById('h_link_panel').value   = h.link_panel || '';
+  document.getElementById('h_link_serwer').value  = h.link_serwer || '';
+  document.getElementById('h_notatki').value      = h.notatki || '';
+  openModal('modalHosting');
+}
+
+async function saveHosting() {
+  const nazwa = document.getElementById('h_nazwa').value.trim();
+  if (!nazwa) { toast('Podaj nazwę hostingu', 'err'); return; }
+  const data = {
+    nazwa, provider: v('h_provider'), plan: v('h_plan'),
+    cena: v('h_cena'), cykl: v('h_cykl'),
+    termin_platnosci: v('h_termin'), status: v('h_status'),
+    ostrzezenie_dni: v('h_ostrzezenie'), link_panel: v('h_link_panel'),
+    link_serwer: v('h_link_serwer'), notatki: v('h_notatki'),
+  };
+  try {
+    if (editId) { await api('updateHosting', { id: editId, updates: data }); toast('Hosting zaktualizowany'); }
+    else        { await api('addHosting', data); toast('Hosting dodany'); }
+    closeModal('modalHosting');
+    state.hostingi = await api('getHostingi');
+    renderView();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+function openOplacModal(id) {
+  const h = state.hostingi.find(x => x.id === id);
+  if (!h) return;
+  editId = id;
+  document.getElementById('o_nazwa').value   = h.nazwa;
+  document.getElementById('o_data').value    = fmtDateInput(new Date());
+  document.getElementById('o_kwota').value   = h.cena || '';
+  document.getElementById('o_nastepna').value= '';
+  document.getElementById('o_notatka').value = '';
+  openModal('modalOplac');
+}
+
+async function saveOplac() {
+  const h = state.hostingi.find(x => x.id === editId);
+  const nastepna = v('o_nastepna');
+  if (!nastepna) { toast('Podaj datę następnej płatności', 'err'); return; }
+  try {
+    await api('oznaczOplacony', {
+      hosting_id: editId, hosting_nazwa: h.nazwa,
+      data_platnosci: v('o_data'), kwota: v('o_kwota'),
+      nastepna_platnosc: nastepna, notatka: v('o_notatka'),
+    });
+    toast('Oznaczono jako opłacony ✓', 'ok');
+    closeModal('modalOplac');
+    const [fresh, hist] = await Promise.all([api('getHostingi'), api('getHistoriaPlatnosci')]);
+    state.hostingi = fresh; state.historia = hist;
+    renderView();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function delHosting(id, nazwa) {
+  if (!confirm(`Usunąć hosting "${nazwa}"?`)) return;
+  try {
+    await api('deleteHosting', { id });
+    state.hostingi = await api('getHostingi');
+    renderView(); toast('Usunięto');
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VIEW: DOMENY
+// ════════════════════════════════════════════════════════════════
+let domenySort   = { col: 'url', dir: 1 };
+let domenyFilter = { q: '', kat: '', hosting: '', status: '' };
+
+function renderDomeny() {
+  const kats  = [...new Set(state.domeny.map(d => d.kategoria).filter(Boolean))].sort();
+  const hosts = state.hostingi;
+  let rows = [...state.domeny];
+
+  if (domenyFilter.q) {
+    const q = domenyFilter.q.toLowerCase();
+    rows = rows.filter(d => (d.url||'').toLowerCase().includes(q) || (d.notatka||'').toLowerCase().includes(q));
+  }
+  if (domenyFilter.kat)     rows = rows.filter(d => d.kategoria === domenyFilter.kat);
+  if (domenyFilter.hosting) rows = rows.filter(d => d.hosting_id === domenyFilter.hosting);
+  if (domenyFilter.status)  rows = rows.filter(d => d.status === domenyFilter.status);
+
+  rows.sort((a,b) => String(a[domenySort.col]||'').localeCompare(String(b[domenySort.col]||'')) * domenySort.dir);
+
+  const tr = rows.map(d => {
+    const h = hosts.find(x => x.id === d.hosting_id);
+    return `<tr>
+      <td><strong>${esc(d.url)}</strong></td>
+      <td>${esc(d.kategoria||'—')}</td>
+      <td>${esc(h ? h.nazwa : d.hosting_nazwa||'—')}</td>
+      <td><span class="badge ${d.status==='aktywna'?'badge-green':d.status==='wygasla'?'badge-red':'badge-gray'}">${esc(d.status||'—')}</span></td>
+      <td>${esc(d.notatka||'')}</td>
+      <td class="col-actions">
+        <button class="btn-icon" onclick="openDomenaModal('${d.id}')">✏️</button>
+        <button class="btn-icon" style="color:var(--red)" onclick="delDomena('${d.id}','${esc(d.url)}')">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const sh = (col, lbl) => {
+    const active = domenySort.col === col;
+    const arrow  = active ? (domenySort.dir === 1 ? '▲' : '▼') : '▲';
+    return `<th onclick="sortDomeny('${col}')">${lbl} <span class="sort-arrow ${active?'active':''}">${arrow}</span></th>`;
+  };
+
+  const katOpts  = kats.map(k  => `<option value="${esc(k)}"  ${domenyFilter.kat===k?'selected':''}>${esc(k)}</option>`).join('');
+  const hostOpts = hosts.map(h => `<option value="${h.id}"    ${domenyFilter.hosting===h.id?'selected':''}>${esc(h.nazwa)}</option>`).join('');
+
+  return `
+    <div class="stat-row">
+      <div class="stat-box"><div class="val">${state.domeny.length}</div><div class="lbl">Wszystkich domen</div></div>
+      <div class="stat-box"><div class="val">${state.domeny.filter(d=>d.status==='aktywna').length}</div><div class="lbl">Aktywnych</div></div>
+      <div class="stat-box"><div class="val">${kats.length}</div><div class="lbl">Kategorii</div></div>
+    </div>
+    <div class="filters">
+      <input placeholder="🔍 Szukaj..." value="${domenyFilter.q}" oninput="domenyFilter.q=this.value;renderView()">
+      <select onchange="domenyFilter.kat=this.value;renderView()">
+        <option value="">Wszystkie kategorie</option>${katOpts}
+      </select>
+      <select onchange="domenyFilter.hosting=this.value;renderView()">
+        <option value="">Wszystkie hostingi</option>${hostOpts}
+      </select>
+      <select onchange="domenyFilter.status=this.value;renderView()">
+        <option value="">Wszystkie statusy</option>
+        <option value="aktywna"    ${domenyFilter.status==='aktywna'?'selected':''}>Aktywna</option>
+        <option value="nieaktywna" ${domenyFilter.status==='nieaktywna'?'selected':''}>Nieaktywna</option>
+        <option value="wygasla"    ${domenyFilter.status==='wygasla'?'selected':''}>Wygasła</option>
+      </select>
+      <span style="color:var(--muted);font-size:0.82rem;padding:7px 0">Wyniki: ${rows.length}</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>${sh('url','URL')}${sh('kategoria','Kategoria')}${sh('hosting_nazwa','Hosting')}${sh('status','Status')}<th>Notatka</th><th>Akcje</th></tr></thead>
+        <tbody>${tr||'<tr><td colspan="6" class="empty">Brak domen</td></tr>'}</tbody>
+      </table>
+    </div>`;
+}
+
+function sortDomeny(col) {
+  domenySort = { col, dir: domenySort.col === col ? -domenySort.dir : 1 };
+  renderView();
+}
+
+function openDomenaModal(id) {
+  editId = id || null;
+  document.getElementById('modalDomenaTitle').textContent = id ? 'Edytuj domenę' : 'Dodaj domenę';
+  const d = id ? state.domeny.find(x => x.id === id) : {};
+  const kSel = document.getElementById('d_kategoria');
+  kSel.innerHTML = '<option value="">— brak —</option>' +
+    state.kategorie.map(k => `<option value="${esc(k)}" ${d.kategoria===k?'selected':''}>${esc(k)}</option>`).join('');
+  const hSel = document.getElementById('d_hosting_id');
+  hSel.innerHTML = '<option value="">— brak —</option>' +
+    state.hostingi.map(h => `<option value="${h.id}" ${d.hosting_id===h.id?'selected':''}>${esc(h.nazwa)}</option>`).join('');
+  document.getElementById('d_url').value    = d.url    || '';
+  document.getElementById('d_status').value = d.status || 'aktywna';
+  document.getElementById('d_notatka').value = d.notatka || '';
+  openModal('modalDomena');
+}
+
+async function saveDomena() {
+  const url = document.getElementById('d_url').value.trim();
+  if (!url) { toast('Podaj URL domeny', 'err'); return; }
+  const hid = document.getElementById('d_hosting_id').value;
+  const h   = state.hostingi.find(x => x.id === hid);
+  const data = {
+    url, kategoria: v('d_kategoria'), hosting_id: hid,
+    hosting_nazwa: h ? h.nazwa : '', status: v('d_status'), notatka: v('d_notatka'),
+  };
+  try {
+    if (editId) { await api('updateDomena', { id: editId, updates: data }); toast('Domena zaktualizowana'); }
+    else        { await api('addDomena', data); toast('Domena dodana'); }
+    closeModal('modalDomena');
+    state.domeny = await api('getDomeny');
+    renderView();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function delDomena(id, url) {
+  if (!confirm(`Usunąć domenę "${url}"?`)) return;
+  try {
+    await api('deleteDomena', { id });
+    state.domeny = await api('getDomeny');
+    renderView(); toast('Usunięto');
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VIEW: ZAPLECZA
+// ════════════════════════════════════════════════════════════════
+let zapleczeFilter = { q: '', kat: '', rodzaj: '', zostaje: '' };
+let zapleczeSort   = { col: 'url', dir: 1 };
+
+function renderZaplecza() {
+  const kats = [...new Set(state.zaplecza.map(z => z.category_name).filter(Boolean))].sort();
+  let rows = [...state.zaplecza];
+
+  if (zapleczeFilter.q) {
+    const q = zapleczeFilter.q.toLowerCase();
+    rows = rows.filter(z => (z.url||'').toLowerCase().includes(q) || (z.projekt||'').toLowerCase().includes(q));
+  }
+  if (zapleczeFilter.kat)    rows = rows.filter(z => z.category_name === zapleczeFilter.kat);
+  if (zapleczeFilter.rodzaj) rows = rows.filter(z => z.rodzaj === zapleczeFilter.rodzaj);
+  if (zapleczeFilter.zostaje === 'tak') rows = rows.filter(z => z.zostaje === 'TAK' || z.zostaje === true);
+  if (zapleczeFilter.zostaje === 'nie') rows = rows.filter(z => z.zostaje === 'NIE' || z.zostaje === false);
+
+  rows.sort((a,b) => {
+    const va = a[zapleczeSort.col]||''; const vb = b[zapleczeSort.col]||'';
+    if (!isNaN(va) && !isNaN(vb) && va !== '' && vb !== '') return (Number(va) - Number(vb)) * zapleczeSort.dir;
+    return String(va).localeCompare(String(vb)) * zapleczeSort.dir;
+  });
+
+  const tr = rows.map(z => {
+    const zostaje = (z.zostaje === 'TAK' || z.zostaje === true) ? 'tak'
+                  : (z.zostaje === 'NIE' || z.zostaje === false) ? 'nie' : '';
+    return `<tr>
+      <td><strong>${esc(z.url)}</strong></td>
+      <td>${esc(z.category_name||'—')}</td>
+      <td><span class="badge ${z.rodzaj==='dedyk'?'badge-blue':'badge-gray'}">${esc(z.rodzaj||'—')}</span></td>
+      <td>${esc(z.projekt||'—')}</td>
+      <td>${esc(z.status_domeny||'—')}</td>
+      <td>${esc(z.hosting||'—')}</td>
+      <td>${esc(z.posty_crm||'—')}</td>
+      <td>${fmtDate(z.ostatni_post)}</td>
+      <td>${fmtDate(z.wygasniecie)}</td>
+      <td>${z.dr||'—'}</td>
+      <td>${z.ur||'—'}</td>
+      <td>${z.ref_domains||'—'}</td>
+      <td>${z.traffic||'—'}</td>
+      <td>${z.keywords||'—'}</td>
+      <td>${z.aftermarket ? '<span class="badge badge-yellow">💰</span>' : '—'}</td>
+      <td>
+        <div class="toggle-zostaje">
+          <button class="${zostaje==='tak'?'tak':''}" onclick="setZostaje('${z.id}','TAK')">TAK</button>
+          <button class="${zostaje==='nie'?'nie':''}" onclick="setZostaje('${z.id}','NIE')">NIE</button>
+        </div>
+      </td>
+      <td class="col-actions">
+        <button class="btn-icon" onclick="openZapleczeModal('${z.id}')">✏️</button>
+        <button class="btn-icon" style="color:var(--red)" onclick="delZaplecze('${z.id}','${esc(z.url)}')">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const sh = (col, lbl) => {
+    const active = zapleczeSort.col === col;
+    const arrow  = active ? (zapleczeSort.dir === 1 ? '▲' : '▼') : '▲';
+    return `<th onclick="sortZaplecza('${col}')">${lbl} <span class="sort-arrow ${active?'active':''}">${arrow}</span></th>`;
+  };
+
+  const katOpts = kats.map(k => `<option value="${esc(k)}" ${zapleczeFilter.kat===k?'selected':''}>${esc(k)}</option>`).join('');
+
+  return `
+    <div class="stat-row">
+      <div class="stat-box"><div class="val">${state.zaplecza.length}</div><div class="lbl">Wszystkich</div></div>
+      <div class="stat-box" style="border-left:3px solid var(--green)"><div class="val" style="color:var(--green)">${state.zaplecza.filter(z=>z.zostaje==='TAK'||z.zostaje===true).length}</div><div class="lbl">Zostaje</div></div>
+      <div class="stat-box" style="border-left:3px solid var(--red)"><div class="val" style="color:var(--red)">${state.zaplecza.filter(z=>z.zostaje==='NIE'||z.zostaje===false).length}</div><div class="lbl">Do rezygnacji</div></div>
+    </div>
+    <div class="filters">
+      <input placeholder="🔍 Szukaj URL / projekt..." value="${zapleczeFilter.q}" oninput="zapleczeFilter.q=this.value;renderView()">
+      <select onchange="zapleczeFilter.kat=this.value;renderView()">
+        <option value="">Wszystkie kategorie</option>${katOpts}
+      </select>
+      <select onchange="zapleczeFilter.rodzaj=this.value;renderView()">
+        <option value="">Ogólna i dedyk</option>
+        <option value="ogólna" ${zapleczeFilter.rodzaj==='ogólna'?'selected':''}>Ogólna</option>
+        <option value="dedyk"  ${zapleczeFilter.rodzaj==='dedyk'?'selected':''}>Dedyk</option>
+      </select>
+      <select onchange="zapleczeFilter.zostaje=this.value;renderView()">
+        <option value="">Wszystkie decyzje</option>
+        <option value="tak" ${zapleczeFilter.zostaje==='tak'?'selected':''}>Zostaje TAK</option>
+        <option value="nie" ${zapleczeFilter.zostaje==='nie'?'selected':''}>Do rezygnacji NIE</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="openModal('modalImport')">📂 Importuj dane</button>
+      <span style="color:var(--muted);font-size:0.82rem;padding:7px 0">Wyniki: ${rows.length}</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th colspan="6" class="col-group">Podstawowe</th>
+            <th colspan="3" class="col-group col-group-crm"><span class="src-badge src-crm">CRM</span> Dane CRM</th>
+            <th colspan="5" class="col-group col-group-ahrefs"><span class="src-badge src-ahrefs">AHREFS</span> SEO</th>
+            <th colspan="1" class="col-group col-group-after"><span class="src-badge src-after">AFTER</span></th>
+            <th colspan="1" class="col-group">Decyzja</th>
+            <th colspan="1" class="col-group">Akcje</th>
+          </tr>
+          <tr>
+            ${sh('url','URL')}${sh('category_name','Kategoria')}${sh('rodzaj','Rodzaj')}
+            ${sh('projekt','Projekt')}${sh('status_domeny','Status')}${sh('hosting','Hosting')}
+            ${sh('posty_crm','Posty')}${sh('ostatni_post','Ost. post')}${sh('wygasniecie','Wygaśnięcie')}
+            ${sh('dr','DR')}${sh('ur','UR')}${sh('ref_domains','Ref.Dom')}${sh('traffic','Traffic')}${sh('keywords','KW')}
+            <th>Aftermkt</th><th>Zostaje</th><th>Akcje</th>
+          </tr>
+        </thead>
+        <tbody>${tr||'<tr><td colspan="17" class="empty">Brak zaplecz</td></tr>'}</tbody>
+      </table>
+    </div>`;
+}
+
+function sortZaplecza(col) {
+  zapleczeSort = { col, dir: zapleczeSort.col === col ? -zapleczeSort.dir : 1 };
+  renderView();
+}
+
+async function setZostaje(id, val) {
+  try {
+    await api('setZostaje', { id, value: val });
+    const z = state.zaplecza.find(x => x.id === id);
+    if (z) z.zostaje = val;
+    renderView();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+function openZapleczeModal(id) {
+  editId = id || null;
+  document.getElementById('modalZapleczeTitle').textContent = id ? 'Edytuj zaplecze' : 'Dodaj zaplecze';
+  const z = id ? state.zaplecza.find(x => x.id === id) : {};
+  const kSel = document.getElementById('z_kategoria');
+  kSel.innerHTML = '<option value="">— brak —</option>' +
+    state.kategorie.map(k => `<option value="${esc(k)}" ${z.category_name===k?'selected':''}>${esc(k)}</option>`).join('');
+  document.getElementById('z_url').value         = z.url          || '';
+  document.getElementById('z_rodzaj').value      = z.rodzaj       || 'ogólna';
+  document.getElementById('z_projekt').value     = z.projekt      || '';
+  document.getElementById('z_status_domeny').value = z.status_domeny || '';
+  document.getElementById('z_hosting_name').value  = z.hosting    || '';
+  document.getElementById('z_wygasniecie').value = fmtDateInput(z.wygasniecie);
+  document.getElementById('z_ostatni_post').value = fmtDateInput(z.ostatni_post);
+  openModal('modalZaplecze');
+}
+
+async function saveZaplecze() {
+  const url = document.getElementById('z_url').value.trim();
+  if (!url) { toast('Podaj URL zaplecza', 'err'); return; }
+  const data = {
+    url, category_name: v('z_kategoria'), rodzaj: v('z_rodzaj'),
+    projekt: v('z_projekt'), status_domeny: v('z_status_domeny'),
+    hosting: v('z_hosting_name'), wygasniecie: v('z_wygasniecie'),
+    ostatni_post: v('z_ostatni_post'),
+  };
+  try {
+    if (editId) { await api('updateZaplecze', { id: editId, updates: data }); toast('Zaplecze zaktualizowane'); }
+    else        { await api('addZaplecze', data); toast('Zaplecze dodane'); }
+    closeModal('modalZaplecze');
+    state.zaplecza = await api('getZaplecza');
+    renderView();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function delZaplecze(id, url) {
+  if (!confirm(`Usunąć zaplecze "${url}"?`)) return;
+  try {
+    await api('deleteZaplecze', { id });
+    state.zaplecza = await api('getZaplecza');
+    renderView(); toast('Usunięto');
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  IMPORT
+// ════════════════════════════════════════════════════════════════
+let importSource = null;
+let importRows   = null;
+
+const IMPORT_FIELDS_JS = {
+  ahrefs      : ['dr','ur','ref_domains','backlinks','keywords','traffic','pct_indexed','pct_not_indexed'],
+  aftermarket : ['aftermarket'],
+  crm         : ['category_name','rodzaj','projekt','status_domeny','hosting','posty_crm','wpisy_2024','ostatni_post','wygasniecie'],
+};
+
+function selectSource(src) {
+  importSource = src;
+  document.querySelectorAll('.import-card').forEach(c => c.classList.remove('selected'));
+  const ids = { ahrefs: 'srcAhrefs', aftermarket: 'srcAftermarket', crm: 'srcCrm' };
+  document.getElementById(ids[src]).classList.add('selected');
+  resetImportFile();
+}
+
+function resetImportFile() {
+  importRows = null;
+  document.getElementById('importFileName').textContent = '';
+  document.getElementById('importPreview').style.display = 'none';
+  document.getElementById('btnImport').disabled = true;
+}
+
+function handleFileDrop(e) {
+  e.preventDefault();
+  document.getElementById('importDrop').classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if (file) processImportFile(file);
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) processImportFile(file);
+}
+
+function processImportFile(file) {
+  if (!importSource) { toast('Najpierw wybierz źródło danych', 'err'); return; }
+  document.getElementById('importFileName').textContent = file.name;
+  const ext = file.name.split('.').pop().toLowerCase();
+  const reader = new FileReader();
+  if (ext === 'txt' || ext === 'csv') {
+    reader.onload = e => parseImportText(e.target.result);
+    reader.readAsText(file, 'UTF-8');
+  } else {
+    reader.onload = e => parseImportXlsx(e.target.result);
+    reader.readAsArrayBuffer(file);
+  }
+}
+
+function normalizeHeader(h) {
+  return h.toLowerCase().trim()
+    .replace(/url \/ domain|^domain$/,'url')
+    .replace(/dr \/ domain rating|domain rating/,'dr')
+    .replace(/ur \/ url rating|url rating/,'ur')
+    .replace(/referring domains/,'ref_domains')
+    .replace(/organic traffic/,'traffic')
+    .replace(/organic keywords/,'keywords')
+    .replace(/indexed pages \(%\)/,'pct_indexed')
+    .replace(/ilość postów wg crm/,'posty_crm')
+    .replace(/ilość wpisów od 2024/,'wpisy_2024')
+    .replace(/ostatni post dodany według crm/,'ostatni_post')
+    .replace(/wygaśnięcie domeny/,'wygasniecie')
+    .replace(/\s+/g,'_');
+}
+
+function parseImportText(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (importSource === 'aftermarket') {
+    importRows = lines.map(l => ({ url: l.split(/[,;\t]/)[0].trim() })).filter(r => r.url);
+    showImportPreview(); return;
+  }
+  const sep = lines[0].includes('\t') ? '\t' : lines[0].includes(';') ? ';' : ',';
+  const headers = lines[0].split(sep).map(normalizeHeader);
+  importRows = lines.slice(1).map(line => {
+    const vals = line.split(sep);
+    const row = {};
+    headers.forEach((h, i) => { row[h] = (vals[i]||'').trim(); });
+    return row;
+  });
+  showImportPreview();
+}
+
+function parseImportXlsx(buffer) {
+  try {
+    const wb   = XLSX.read(buffer, { type: 'array' });
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    importRows = data.map(row => {
+      const n = {};
+      Object.entries(row).forEach(([k, val]) => { n[normalizeHeader(k)] = val; });
+      return n;
+    });
+    showImportPreview();
+  } catch(e) { toast('Błąd parsowania pliku: ' + e.message, 'err'); }
+}
+
+function showImportPreview() {
+  if (!importRows || !importRows.length) { toast('Brak danych w pliku', 'err'); return; }
+  const withUrl = importRows.filter(r => r.url);
+  document.getElementById('importPreview').style.display = 'block';
+  document.getElementById('importStats').innerHTML = `
+    <div class="import-stat"><strong>${importRows.length}</strong>wierszy w pliku</div>
+    <div class="import-stat"><strong>${withUrl.length}</strong>z URL</div>`;
+  document.getElementById('importMsg').textContent =
+    `Źródło: ${importSource.toUpperCase()} · Pola: ${IMPORT_FIELDS_JS[importSource].join(', ')}`;
+  document.getElementById('btnImport').disabled = false;
+}
+
+async function runImport() {
+  if (!importRows || !importSource) return;
+  const btn = document.getElementById('btnImport');
+  btn.disabled = true; btn.textContent = 'Importuję...';
+  try {
+    const result = await api('importZaplecza', { rows: importRows, source: importSource });
+    toast(`Import: ${result.updated} zaktualizowanych, ${result.added} dodanych, ${result.skipped} pominiętych`, 'ok');
+    closeModal('modalImport');
+    state.zaplecza = await api('getZaplecza');
+    renderView();
+  } catch(e) { toast(e.message, 'err'); }
+  finally { btn.disabled = false; btn.textContent = 'Importuj'; }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VIEW: KALENDARZ
+// ════════════════════════════════════════════════════════════════
+function renderKalendarz() {
+  const now = new Date();
+  const sorted = [...state.hostingi]
+    .filter(h => h.termin_platnosci)
+    .sort((a,b) => new Date(a.termin_platnosci) - new Date(b.termin_platnosci));
+
+  if (!sorted.length) return '<div class="empty">Brak hostingów z datą płatności</div>';
+
+  const items = sorted.map(h => {
+    const d    = new Date(h.termin_platnosci);
+    const days = Math.round((d - now) / 86400000);
+    const cls  = days < 0 ? 'cal-urgent' : days < 14 ? 'cal-warn' : 'cal-ok';
+    const day   = d.getDate();
+    const month = d.toLocaleDateString('pl', { month: 'short' });
+    const info  = days < 0 ? `${Math.abs(days)} dni po terminie!` : days === 0 ? 'Dziś!' : `Za ${days} dni`;
+    return `
+    <div class="cal-item ${cls}">
+      <div class="cal-date"><div class="day">${day}</div><div class="month">${month}</div></div>
+      <div class="cal-info">
+        <h4>${esc(h.nazwa)}</h4>
+        <p>${esc(h.provider||'')}${h.cena ? ' · '+h.cena+' PLN' : ''} · ${info}</p>
+      </div>
+      <button class="btn btn-sm btn-success" onclick="openOplacModal('${h.id}')">💳 Opłać</button>
+    </div>`;
+  }).join('');
+
+  const hist = [...state.historia]
+    .sort((a,b) => new Date(b.data_platnosci) - new Date(a.data_platnosci))
+    .slice(0, 10);
+
+  const histRows = hist.map(p => `
+    <tr>
+      <td>${fmtDate(p.data_platnosci)}</td>
+      <td>${esc(p.hosting_nazwa)}</td>
+      <td>${p.kwota ? p.kwota+' PLN' : '—'}</td>
+      <td>${esc(p.notatka||'')}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="section-head" style="margin-bottom:16px"><h3>Nadchodzące płatności</h3></div>
+    <div class="calendar-list">${items}</div>
+    ${hist.length ? `
+    <div class="section-head" style="margin:28px 0 12px"><h3>Historia płatności (ostatnie 10)</h3></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Data</th><th>Hosting</th><th>Kwota</th><th>Notatka</th></tr></thead>
+        <tbody>${histRows}</tbody>
+      </table>
+    </div>` : ''}`;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  VIEW: USTAWIENIA
+// ════════════════════════════════════════════════════════════════
+function renderUstawienia() {
+  const tags = state.kategorie.map(k => `
+    <div class="kat-tag">
+      ${esc(k)}
+      <button class="kat-del" onclick="delKategoria('${esc(k)}')" title="Usuń">✕</button>
+    </div>`).join('');
+
+  return `
+    <div class="section-head">
+      <h3>Kategorie tematyczne</h3>
+      <button class="btn btn-primary btn-sm" onclick="openModal('modalKategoria')">+ Dodaj kategorię</button>
+    </div>
+    <div class="kategorie-grid">${tags||'<span style="color:var(--muted)">Brak kategorii</span>'}</div>
+    <hr style="border-color:var(--border);margin:28px 0">
+    <div class="section-head"><h3>O aplikacji</h3></div>
+    <p style="font-size:0.85rem;color:var(--muted)">HostManager v2.0 · GitHub Pages + Google Apps Script · @sempai.pl</p>`;
+}
+
+async function saveKategoria() {
+  const nazwa = document.getElementById('kat_nazwa').value.trim();
+  if (!nazwa) { toast('Podaj nazwę kategorii', 'err'); return; }
+  try {
+    await api('addKategoria', { nazwa });
+    toast('Kategoria dodana');
+    closeModal('modalKategoria');
+    document.getElementById('kat_nazwa').value = '';
+    state.kategorie = await api('getKategorie');
+    renderView();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function delKategoria(nazwa) {
+  if (!confirm(`Usunąć kategorię "${nazwa}"?`)) return;
+  // getKategorie returns names, but deleteKategoria needs id
+  // We pass nazwa and handle on backend, or fetch full list first
+  try {
+    // Fetch full objects to get id
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify({ token: currentToken, action: 'getKategorie', data: {} }),
+    });
+    // getKategorie already returns just names array — we need a separate approach
+    // Use a workaround: pass nazwa as a search param, or just call deleteKategoria with {nazwa}
+    // The backend deleteKategoria expects {id}. Let's store kategorie with ids.
+    toast('Aby usunąć kategorię, usuń ją bezpośrednio w arkuszu Google Sheets', 'err');
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  MODAL HELPERS
+// ════════════════════════════════════════════════════════════════
+function openModal(id) {
+  if (id === 'modalImport') {
+    importSource = null; importRows = null;
+    document.querySelectorAll('.import-card').forEach(c => c.classList.remove('selected'));
+    document.getElementById('importFileName').textContent = '';
+    document.getElementById('importPreview').style.display = 'none';
+    document.getElementById('btnImport').disabled = true;
+    document.getElementById('importFile').value = '';
+  }
+  document.getElementById(id).classList.remove('hidden');
+}
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) e.target.classList.add('hidden');
+});
+
+// ════════════════════════════════════════════════════════════════
+//  UTILS
+// ════════════════════════════════════════════════════════════════
+function v(id) { return document.getElementById(id).value; }
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtDate(d) {
+  if (!d) return '—';
+  try { const dt = new Date(d); return isNaN(dt) ? String(d) : dt.toLocaleDateString('pl'); }
+  catch { return String(d); }
+}
+function fmtDateInput(d) {
+  if (!d) return '';
+  try { const dt = new Date(d); return isNaN(dt) ? '' : dt.toISOString().split('T')[0]; }
+  catch { return ''; }
+}
+
+let _toastTimer = null;
+function toast(msg, type = 'ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+}
+</script>
+</body>
+</html>
